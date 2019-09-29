@@ -6,7 +6,7 @@ task -Name nothing {
 task -Name setEnvironment {
     # Run test build
     # Read the current environment, populate env vars
-    Set-BuildEnvironment -Path $rootpath
+    Set-BuildEnvironment -Path $rootpath -Force
 
     # Read back the env vars
     Get-Item ENV:* | Sort-Object -property Name
@@ -70,6 +70,44 @@ task -Name build {
     Import-Module -Name $modulePath -RequiredVersion $moduleVersion
 }
 
+task -name GenerateMarkdown {
+    Write-Verbose "[GENERATEMARKDOWN][START]"
+
+    # Find the Manifest file
+    $ManifestFile = "$modulePath\$ModuleName.psd1"
+
+    # Unload any module with same name
+    #Get-Module -Name $ModuleName -All | Remove-Module -Force -ErrorAction Ignore
+
+    # Import Module
+    $ModuleInformation = Import-Module -Name $ManifestFile -Force -ErrorAction Stop -PassThru
+
+    try {
+        if ($ModuleInformation.ExportedFunctions.Count -eq 0) {
+            Write-Verbose -Message "[GENERATEMARKDOWN] No functions have been exported for this module. Skipping Markdown generation..."
+            return
+        }
+
+        $params = @{
+            AlphabeticParamsOrder = $true
+            ErrorAction           = 'SilentlyContinue'
+            Locale                = 'en-US'
+            Module                = $ModuleName
+            OutputFolder          = $docPath
+            WithModulePage        = $true
+            Force                 = $true
+        }
+
+        # ErrorAction is set to SilentlyContinue so this
+        # command will not overwrite an existing Markdown file.
+        Write-Verbose -Message "[GENERATEMARKDOWN] Creating new Markdown help for $($env:moduleName)..."
+        $null = New-MarkdownHelp @params
+    } finally {
+        Get-Module -Name $ModuleName -All | Remove-Module -Force -ErrorAction Ignore
+    }
+    Write-Verbose "[GENERATEMARKDOWN][END]"
+}
+
 task -Name clean {
     # Output folder
     if (Test-Path $buildOutputPath) {
@@ -103,11 +141,6 @@ task -Name test {
     }
 
     $results = Invoke-Pester @PesterParams
-
-    #if($results.FailedCount -gt 0)
-    #{
-    #    throw "Failed [$($results.FailedCount)] Pester tests."
-    #}
 }
 
 
@@ -128,4 +161,15 @@ task -name analyze {
         'Please investigate or add the required SuppressMessage attribute.'
         $results | Format-Table -AutoSize
     }
+}
+
+task -name SyncFork {
+    Write-Verbose "[SYNCFORK][START]"
+
+    git remote add upstream https://github.com/FrPSUG/LogManagement.git
+    git fetch upstream
+    git pull upstream master
+    git push
+
+    Write-Verbose "[SYNCFORK][END]"
 }
